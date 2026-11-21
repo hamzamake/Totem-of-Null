@@ -3,6 +3,6 @@
   "package": "dev.nulltotem.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": ["AnvilMenuMixin", "PlayerAdvancementsMixin", "PlayerListMixin", "ServerGamePacketListenerImplMixin"],
-  "client": ["PlayerInfoMixin"],
+  "client": ["MinecraftMixin", "PlayerInfoMixin"],
   "injectors": { "defaultRequire": 1 }
 }

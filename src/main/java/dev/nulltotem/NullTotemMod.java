@@ -2,6 +2,8 @@ package dev.nulltotem;
 
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.resources.Identifier;
 
 public class NullTotemMod implements ModInitializer {
@@ -18,5 +20,7 @@ public class NullTotemMod implements ModInitializer {
         TotemHandler.init(); // before SoldierHandler: its ALLOW_DEATH must get the first say (see SoldierHandler.init)
         SoldierHandler.init();
         CommandRegistrationCallback.EVENT.register((dispatcher, registries, env) -> NullCommand.register(dispatcher));
+        PayloadTypeRegistry.playC2S().register(TotemClickPayload.TYPE, TotemClickPayload.CODEC);
+        ServerPlayNetworking.registerGlobalReceiver(TotemClickPayload.TYPE, (payload, context) -> NullOrders.click(context.player()));
     }
 }

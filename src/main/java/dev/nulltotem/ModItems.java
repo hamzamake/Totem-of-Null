@@ -43,8 +43,12 @@ public final class ModItems {
             .rarity(Rarity.EPIC)
             .component(DataComponents.ENCHANTMENT_GLINT_OVERRIDE, true)
             .component(DataComponents.LORE, new ItemLore(List.of(
-                    hint("Sneak + right-click in your off hand: summon Null Soldiers"),
-                    hint("Saves you from death and erases every tagged player"))))
+                    hint("Saves you from death and erases every tagged player"),
+                    hint("Sneak + right-click, off hand: summon Null Soldiers"),
+                    hint("Sneak + right-click, main hand: soldier orders"),
+                    hint("Sneak + left-click, off hand: send them to a spot or a mob"),
+                    hint("   (do it again to call them back)"),
+                    hint("Sneak + left-click, main hand: netherrack bridge"))))
             // the client's pop animation shows the held item that has this component; the save itself is TotemHandler's
             .component(DataComponents.DEATH_PROTECTION, DeathProtection.TOTEM_OF_UNDYING)));
 
@@ -109,14 +113,20 @@ public final class ModItems {
 
         @Override
         public InteractionResult use(Level level, Player player, InteractionHand hand) {
-            if (hand != InteractionHand.OFF_HAND || !player.isShiftKeyDown()) {
+            if (!player.isShiftKeyDown()) {
                 return InteractionResult.PASS;
             }
             ItemStack stack = player.getItemInHand(hand);
-            if (player instanceof ServerPlayer master) {
-                if (!isCurrent(stack, master.level().getServer())) {
-                    return InteractionResult.FAIL;
+            if (player instanceof ServerPlayer master && !isCurrent(stack, master.level().getServer())) {
+                return InteractionResult.FAIL;
+            }
+            if (hand == InteractionHand.MAIN_HAND) {
+                if (player instanceof ServerPlayer master) {
+                    NullOrders.openMenu(master);
                 }
+                return InteractionResult.SUCCESS;
+            }
+            if (player instanceof ServerPlayer master) {
                 int started = SoldierHandler.spawn(master, NullServerState.HARD_CAP);
                 int max = NullServerState.get(master.level().getServer()).maxSoldiers();
                 master.displayClientMessage(Component.literal(started > 0

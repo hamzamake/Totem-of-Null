@@ -32,18 +32,26 @@ import static net.minecraft.commands.Commands.literal;
 
 public final class NullCommand {
     static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
+        // orders only move your own soldiers, so anyone may give them; everything else is for operators
+        var op = Commands.<CommandSourceStack>hasPermission(Commands.LEVEL_GAMEMASTERS);
         dispatcher.register(literal("null")
-                .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
-                .then(literal("give").executes(NullCommand::give))
-                .then(literal("tag").then(argument("players", EntityArgument.players()).executes(c -> tag(c, true))))
-                .then(literal("untag").then(argument("players", EntityArgument.players()).executes(c -> tag(c, false))))
-                .then(literal("soldiers")
+                .then(literal("orders").executes(c -> NullOrders.openMenu(c.getSource().getPlayerOrException())))
+                .then(literal("order")
+                        .then(literal("follow").executes(c -> NullOrders.follow(c.getSource().getPlayerOrException())))
+                        .then(literal("attack").executes(c -> NullOrders.attackLooked(c.getSource().getPlayerOrException())))
+                        .then(literal("mine").executes(c -> NullOrders.mineLooked(c.getSource().getPlayerOrException())))
+                        .then(literal("summon").executes(c -> NullOrders.summon(c.getSource().getPlayerOrException())))
+                        .then(literal("dismiss").executes(c -> NullOrders.dismiss(c.getSource().getPlayerOrException()))))
+                .then(literal("give").requires(op).executes(NullCommand::give))
+                .then(literal("tag").requires(op).then(argument("players", EntityArgument.players()).executes(c -> tag(c, true))))
+                .then(literal("untag").requires(op).then(argument("players", EntityArgument.players()).executes(c -> tag(c, false))))
+                .then(literal("soldiers").requires(op)
                         .then(literal("spawn")
                                 .executes(c -> spawn(c, NullServerState.HARD_CAP))
                                 .then(argument("amount", IntegerArgumentType.integer(1, NullServerState.HARD_CAP))
                                         .executes(c -> spawn(c, IntegerArgumentType.getInteger(c, "amount")))))
                         .then(literal("clear").executes(NullCommand::clear)))
-                .then(literal("config")
+                .then(literal("config").requires(op)
                         .executes(NullCommand::openConfig)
                         .then(literal("maxSoldiers").then(argument("value", IntegerArgumentType.integer(1, NullServerState.HARD_CAP))
                                 .executes(c -> setMax(c, IntegerArgumentType.getInteger(c, "value")))))));

@@ -5,9 +5,11 @@ import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
+import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
@@ -15,14 +17,21 @@ import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.monster.Creeper;
+import net.minecraft.world.entity.monster.Enemy;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.scores.Scoreboard;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -33,32 +42,51 @@ public final class SoldierHandler {
     private static final int NAME_LENGTH = 9;
     /** Scoreboard team of every soldier; it shows "[Null Soldier]" before the name and the client gives it the black skin. */
     public static final String TEAM = "null_soldiers";
-    private static final double TELEPORT_DISTANCE = 30; // follow on foot inside this, teleport beyond it
     private static final double FOLLOW_DISTANCE = 4;
-    private static final double REACH = 2.5;
-    private static final int ATTACK_INTERVAL = 13; // a netherite sword's full charge (1.6 attacks/s)
-    private static final int SPAWN_TIMEOUT = 200;  // ticks to wait for Carpet's asynchronous spawn
+    private static final double POST_DISTANCE = 3;
+    private static final double LEASH = 24;            // targets farther than this from the master (or post) are let go
+    private static final double DEFEND_RADIUS = 16;    // hostiles after the master or a soldier within this get engaged
+    private static final int GIVE_UP = 200;            // ticks out of reach before a target is dropped
+    private static final int ORDERED_GIVE_UP = 600;    // longer for a target the master pointed at
+    private static final float LOW_HEALTH = 6;         // 3 hearts: eat a golden apple
+    private static final int EAT_TIMEOUT = 60;         // a golden apple takes 32 ticks
+    private static final int SPAWN_TIMEOUT = 200;      // ticks to wait for Carpet's asynchronous spawn
     private static final int PORTAL_LOCK = 20;
 
     /** A bot Carpet is still spawning; master is null once its master cleared them, so it's dismissed on arrival. */
     private record Pending(@Nullable UUID master, int expiresAt) {
     }
 
+    /** Where a master told their soldiers to go and wait. */
+    private record Post(ResourceKey<Level> dimension, Vec3 pos) {
+    }
+
+    private record Eating(int applesBefore, int until) {
+    }
+
     private static final Map<String, Pending> pending = new HashMap<>();
-    private static final Map<UUID, LivingEntity> targets = new HashMap<>(); // master -> what their soldiers attack
-    private static final Set<UUID> fighting = new HashSet<>();             // soldiers whose ATTACK action is running
+    private static final Map<UUID, LivingEntity> targets = new HashMap<>();  // soldier -> what it's fighting
+    private static final Map<UUID, Integer> outOfReach = new HashMap<>();    // soldier -> ticks it couldn't reach its target
+    private static final Map<UUID, LivingEntity> orders = new HashMap<>();   // master -> mob they sent the soldiers at
+    private static final Map<UUID, Post> posts = new HashMap<>();            // master -> where the soldiers wait
+    private static final Map<UUID, Eating> eating = new HashMap<>();         // soldier -> golden apple in progress
 
     static void init() {
         ServerTickEvents.END_SERVER_TICK.register(SoldierHandler::tick);
         AttackEntityCallback.EVENT.register((player, level, hand, entity, hit) -> {
             if (player instanceof ServerPlayer master && entity instanceof LivingEntity target) {
-                command(master, target);
+                command(master, target, false);
             }
             return InteractionResult.PASS;
         });
         ServerLivingEntityEvents.AFTER_DAMAGE.register((entity, source, base, taken, blocked) -> {
-            if (entity instanceof ServerPlayer master && source.getEntity() instanceof LivingEntity attacker) {
-                command(master, attacker);
+            if (!(entity instanceof ServerPlayer hurt) || !(source.getEntity() instanceof LivingEntity attacker)) {
+                return;
+            }
+            if (masterOf(hurt) == null) {
+                command(hurt, attacker, false); // a master was hurt: the whole squad answers
+            } else if (!isFriendly(hurt, attacker) && targets.get(hurt.getUUID()) == null) {
+                targets.put(hurt.getUUID(), attacker); // a soldier was hurt: it hits back
             }
         });
         // Neutrality: a soldier's hit (or sword sweep) never lands on its master or its master's other soldiers
@@ -71,10 +99,16 @@ public final class SoldierHandler {
             }
             return true;
         });
+        PlayerBlockBreakEvents.AFTER.register((level, player, pos, state, blockEntity) -> SoldierMining.onBreak(player, pos, state));
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
             pending.clear();
             targets.clear();
-            fighting.clear();
+            outOfReach.clear();
+            orders.clear();
+            posts.clear();
+            eating.clear();
+            SoldierMining.reset();
+            SoldierPaths.reset();
         });
     }
 
@@ -93,14 +127,70 @@ public final class SoldierHandler {
         return master != null && (other.getUUID().equals(master) || master.equals(masterOf(other)));
     }
 
+    public static List<ServerPlayer> soldiersOf(MinecraftServer server, UUID master) {
+        return server.getPlayerList().getPlayers().stream().filter(p -> master.equals(masterOf(p))).toList();
+    }
+
     /** Points every soldier of this master at the target, unless the target is on the master's side. */
-    private static void command(ServerPlayer master, LivingEntity target) {
-        if (target == master || masterOf(master) != null || master.getUUID().equals(masterOf(target))
-                || !NullServerState.get(master.level().getServer()).soldiers.containsKey(master.getUUID())) {
+    private static void command(ServerPlayer master, LivingEntity target, boolean ordered) {
+        if (target == master || masterOf(master) != null || master.getUUID().equals(masterOf(target))) {
             return;
         }
-        targets.put(master.getUUID(), target);
+        for (ServerPlayer bot : soldiersOf(master.level().getServer(), master.getUUID())) {
+            targets.put(bot.getUUID(), target);
+            outOfReach.remove(bot.getUUID());
+        }
+        if (ordered) {
+            orders.put(master.getUUID(), target);
+        }
     }
+
+    // ---- orders (see NullOrders) ----
+
+    /** Sends the squad at a mob the master pointed at, however far it is (up to 64 blocks). */
+    static void attack(ServerPlayer master, LivingEntity target) {
+        command(master, target, true);
+    }
+
+    /** Sends the squad to a spot to wait there; they stop following until called back. */
+    static void hold(ServerPlayer master, Vec3 pos) {
+        SoldierMining.cancel(master.getUUID());
+        posts.put(master.getUUID(), new Post(master.level().dimension(), pos));
+    }
+
+    /** Back to normal: follow the master, forget any post, pointed-at target or mining job. */
+    static void follow(ServerPlayer master) {
+        UUID id = master.getUUID();
+        posts.remove(id);
+        LivingEntity ordered = orders.remove(id);
+        if (ordered != null) {
+            targets.values().removeIf(t -> t == ordered);
+        }
+        SoldierMining.cancel(id);
+    }
+
+    /** True while the soldiers are holding a post or chasing a mob the master pointed at. */
+    static boolean isCommanded(UUID master) {
+        LivingEntity ordered = orders.get(master);
+        if (ordered != null && !ordered.isAlive()) {
+            orders.remove(master);
+            ordered = null;
+        }
+        return ordered != null || posts.containsKey(master);
+    }
+
+    static String status(MinecraftServer server, UUID master) {
+        int count = soldiersOf(server, master).size();
+        String mining = SoldierMining.status(master);
+        LivingEntity ordered = orders.get(master);
+        String doing = mining != null ? mining
+                : ordered != null && ordered.isAlive() ? "attacking " + ordered.getName().getString()
+                : posts.containsKey(master) ? "holding the spot you sent them to"
+                : "following you";
+        return "You lead " + count + " Null Soldier(s), " + doing + ".";
+    }
+
+    // ---- spawning and dismissing ----
 
     /** Starts up to {@code amount} Carpet fake players, capped so the master never has more than the configured max. */
     static int spawn(ServerPlayer master, int amount) {
@@ -168,9 +258,13 @@ public final class SoldierHandler {
     private static int dismiss(MinecraftServer server, @Nullable UUID onlyMaster, Component reason) {
         pending.replaceAll((name, p) -> onlyMaster == null || onlyMaster.equals(p.master()) ? new Pending(null, p.expiresAt()) : p);
         if (onlyMaster == null) {
-            targets.clear();
+            orders.clear();
+            posts.clear();
+            SoldierMining.reset();
         } else {
-            targets.remove(onlyMaster);
+            orders.remove(onlyMaster);
+            posts.remove(onlyMaster);
+            SoldierMining.cancel(onlyMaster);
         }
         int removed = 0;
         // forgetGone() drops the names from the saved list and the team once Carpet has disconnected them
@@ -179,6 +273,7 @@ public final class SoldierHandler {
             if (master != null && (onlyMaster == null || onlyMaster.equals(master))) {
                 bot.level().sendParticles(ParticleTypes.REVERSE_PORTAL, bot.getX(), bot.getY() + 1, bot.getZ(), 40, 0.3, 0.8, 0.3, 0.05);
                 CarpetIntegration.remove(bot, reason);
+                targets.remove(bot.getUUID());
                 removed++;
             }
         }
@@ -199,13 +294,14 @@ public final class SoldierHandler {
             }
             return now > e.getValue().expiresAt() && !CarpetIntegration.isSpawning(e.getKey());
         });
+        SoldierMining.deliver(server);
         if (now % 20 == 0) {
             forgetGone(server);
         }
         for (ServerPlayer bot : List.copyOf(server.getPlayerList().getPlayers())) {
             UUID master = masterOf(bot);
             if (master != null && bot.isAlive()) {
-                control(bot, server.getPlayerList().getPlayer(master));
+                control(bot, master, server.getPlayerList().getPlayer(master), now);
             }
         }
     }
@@ -214,7 +310,10 @@ public final class SoldierHandler {
     private static void enlist(MinecraftServer server, ServerPlayer bot, UUID master) {
         bot.setAttached(SoldierAttachments.MASTER_UUID, master); // first: it's what keeps the armour's advancement quiet
         SoldierGear.equip(bot);
-        fighting.remove(bot.getUUID()); // a reused name has the old bot's UUID, but a fresh action pack with no ATTACK running
+        // a reused name has the old bot's UUID
+        targets.remove(bot.getUUID());
+        outOfReach.remove(bot.getUUID());
+        eating.remove(bot.getUUID());
 
         // Players always render their account name, so "Null Soldier" goes above them as a team prefix
         Scoreboard scoreboard = server.getScoreboard();
@@ -253,45 +352,190 @@ public final class SoldierHandler {
         state.soldiers.values().removeIf(List::isEmpty);
     }
 
-    /** One tick of a soldier's brain: fight the master's target, otherwise stay with the master. */
-    private static void control(ServerPlayer bot, @Nullable ServerPlayer master) {
-        EntityPlayerActionPack actions = CarpetIntegration.actions(bot);
+    // ---- the brain ----
+
+    /**
+     * One tick of a soldier: eat when low, fight its target, work its mining claim, or else hold its post / walk after
+     * the master. Soldiers never teleport, except to follow their master into another dimension.
+     */
+    private static void control(ServerPlayer bot, UUID masterId, @Nullable ServerPlayer master, int now) {
         // portals never take soldiers anywhere (they follow their master between dimensions by teleport), so standing
         // in the portal they came out of doesn't send them to the Nether
         bot.setPortalCooldown(PORTAL_LOCK);
-        LivingEntity target = master == null ? null : targets.get(master.getUUID());
-        if (target != null && (!target.isAlive() || target.level() != master.level() || target.distanceTo(master) > TELEPORT_DISTANCE)) {
-            targets.remove(master.getUUID());
-            target = null;
+        if (eat(bot, now)) {
+            return;
+        }
+        LivingEntity target = target(bot, masterId, master, now);
+        if (target != null) {
+            SoldierMining.pause(bot);
+            fight(bot, target);
+            return;
+        }
+        if (SoldierMining.work(bot, masterId, master, now)) {
+            return;
+        }
+        selectSlot(bot, SoldierGear.SWORD_SLOT);
+        EntityPlayerActionPack actions = CarpetIntegration.actions(bot);
+        Post post = posts.get(masterId);
+        if (post != null && post.dimension() == bot.level().dimension()) {
+            walkTo(bot, post.pos(), POST_DISTANCE);
+        } else if (master == null || !master.isAlive()) {
+            actions.stopMovement();
+        } else if (master.level() != bot.level()) {
+            bot.teleportTo(master.level(), master.getX(), master.getY(), master.getZ(), Set.of(), bot.getYRot(), bot.getXRot(), true);
+        } else {
+            walkTo(bot, master.position(), FOLLOW_DISTANCE);
+        }
+    }
+
+    /** The soldier's current target, dropping one that's dead, too far away or out of reach for too long; else a threat. */
+    @Nullable
+    private static LivingEntity target(ServerPlayer bot, UUID masterId, @Nullable ServerPlayer master, int now) {
+        UUID id = bot.getUUID();
+        LivingEntity target = targets.get(id);
+        if (target != null) {
+            boolean ordered = orders.get(masterId) == target;
+            Vec3 anchor = anchor(bot, masterId, master);
+            if (!target.isAlive() || target.isRemoved() || target.level() != bot.level()
+                    || (!ordered && target.position().distanceTo(anchor) > LEASH)
+                    || outOfReach.getOrDefault(id, 0) > (ordered ? ORDERED_GIVE_UP : GIVE_UP)) {
+                targets.remove(id);
+                outOfReach.remove(id);
+                target = null;
+            }
+        }
+        if (target == null && (now + id.hashCode()) % 10 == 0) {
+            target = threat(bot, masterId);
+            if (target != null) {
+                targets.put(id, target);
+            }
+        }
+        return target;
+    }
+
+    /** What the soldier stays near: its post, else its master (when in the same dimension), else itself. */
+    private static Vec3 anchor(ServerPlayer bot, UUID masterId, @Nullable ServerPlayer master) {
+        Post post = posts.get(masterId);
+        if (post != null && post.dimension() == bot.level().dimension()) {
+            return post.pos();
+        }
+        return master != null && master.level() == bot.level() ? master.position() : bot.position();
+    }
+
+    /** The closest hostile mob within reach of trouble that is going after the master or one of the master's soldiers. */
+    @Nullable
+    private static LivingEntity threat(ServerPlayer bot, UUID masterId) {
+        return bot.level().getEntitiesOfClass(Mob.class, bot.getBoundingBox().inflate(DEFEND_RADIUS), mob -> {
+            LivingEntity victim = mob.getTarget();
+            return mob instanceof Enemy && mob.isAlive() && victim != null
+                    && (victim.getUUID().equals(masterId) || masterId.equals(masterOf(victim)));
+        }).stream().min(Comparator.comparingDouble(bot::distanceToSqr)).orElse(null);
+    }
+
+    /**
+     * Melee like a good player: close in, circle the target, swing only at full charge, and jump first so the hit lands
+     * as a falling critical. Backs off from a creeper that's about to blow.
+     */
+    private static void fight(ServerPlayer bot, LivingEntity target) {
+        EntityPlayerActionPack actions = CarpetIntegration.actions(bot);
+        selectSlot(bot, SoldierGear.SWORD_SLOT);
+        actions.lookAt(target.getBoundingBox().getCenter()); // ATTACK hits whatever the bot looks at
+        boolean inReach = bot.isWithinEntityInteractionRange(target, 0);
+        if (inReach) {
+            outOfReach.put(bot.getUUID(), 0);
+        } else {
+            outOfReach.merge(bot.getUUID(), 1, Integer::sum);
         }
 
-        if (target != null && target.level() == bot.level()) {
-            actions.lookAt(target.getBoundingBox().getCenter()); // ATTACK hits whatever the bot looks at
-            double distance = bot.distanceTo(target);
-            actions.setForward(distance > REACH ? 1 : 0);
-            actions.setSprinting(distance > FOLLOW_DISTANCE);
-            if (fighting.add(bot.getUUID())) {
-                CarpetIntegration.attackEvery(bot, ATTACK_INTERVAL);
-            }
-        } else {
-            if (fighting.remove(bot.getUUID())) {
-                actions.stopAll();
-            }
-            if (master == null || !master.isAlive()) {
-                actions.stopMovement();
-                return;
-            }
-            if (master.level() != bot.level() || bot.distanceTo(master) > TELEPORT_DISTANCE) {
-                bot.teleportTo(master.level(), master.getX(), master.getY(), master.getZ(), Set.of(), bot.getYRot(), bot.getXRot(), true);
-                return;
-            }
-            double distance = bot.distanceTo(master);
-            actions.lookAt(master.getEyePosition());
-            actions.setForward(distance > FOLLOW_DISTANCE ? 1 : 0);
-            actions.setSprinting(distance > 2 * FOLLOW_DISTANCE);
+        if (target instanceof Creeper creeper && creeper.getSwellDir() > 0) {
+            actions.setForward(-1);
+            actions.setStrafing(0);
+            actions.setSprinting(false);
+            return;
         }
+        actions.setForward(inReach ? 0 : 1);
+        actions.setSprinting(!inReach && bot.distanceTo(target) > 5);
+        // half the squad circles left, half right, so they spread around the target instead of stacking
+        actions.setStrafing(inReach ? ((bot.getUUID().getLeastSignificantBits() & 1) == 0 ? 0.6f : -0.6f) : 0);
+        if (!inReach) {
+            jumpIfBlocked(bot);
+            return;
+        }
+        if (bot.getAttackStrengthScale(0.5f) < 0.95f) {
+            return;
+        }
+        boolean falling = !bot.onGround() && bot.getDeltaMovement().y < 0;
+        boolean canJump = bot.onGround() && !bot.isInWater() && bot.level().noCollision(bot, bot.getBoundingBox().move(0, 1, 0));
+        if (falling || bot.isInWater() || bot.onClimbable() || (bot.onGround() && !canJump)) {
+            CarpetIntegration.attackOnce(bot);
+        } else if (canJump) {
+            CarpetIntegration.jump(bot);
+        }
+    }
+
+    /** Below 3 hearts a soldier backs off and eats a golden apple (if it has any left). True while it's eating. */
+    private static boolean eat(ServerPlayer bot, int now) {
+        UUID id = bot.getUUID();
+        ItemStack apples = bot.getInventory().getItem(SoldierGear.APPLE_SLOT);
+        int count = apples.is(Items.GOLDEN_APPLE) ? apples.getCount() : 0;
+        Eating meal = eating.get(id);
+        EntityPlayerActionPack actions = CarpetIntegration.actions(bot);
+        if (meal != null) {
+            if (count < meal.applesBefore() || now > meal.until()) {
+                CarpetIntegration.stopUse(bot);
+                eating.remove(id);
+                selectSlot(bot, SoldierGear.SWORD_SLOT);
+                return false;
+            }
+            actions.setForward(-1); // backs away from whatever it was facing
+            return true;
+        }
+        if (bot.getHealth() >= LOW_HEALTH || count == 0) {
+            return false;
+        }
+        CarpetIntegration.stopAttack(bot);
+        selectSlot(bot, SoldierGear.APPLE_SLOT);
+        actions.look(bot.getYRot(), 90); // at the ground, so "use" eats instead of interacting with a mob
+        actions.setStrafing(0);
+        actions.setSprinting(false);
+        CarpetIntegration.holdUse(bot);
+        eating.put(id, new Eating(count, now + EAT_TIMEOUT));
+        return true;
+    }
+
+    /** Walks towards the goal along a route around obstacles (see SoldierPaths), stopping {@code stopAt} short of it. */
+    static void walkTo(ServerPlayer bot, Vec3 goal, double stopAt) {
+        if (SoldierMining.climbOut(bot, goal)) {
+            return;
+        }
+        EntityPlayerActionPack actions = CarpetIntegration.actions(bot);
+        double distance = bot.position().distanceTo(goal);
+        actions.setStrafing(0);
+        if (distance <= stopAt) {
+            actions.setForward(0);
+            actions.setSprinting(false);
+            return;
+        }
+        Vec3 step = SoldierPaths.next(bot, goal, bot.level().getServer().getTickCount());
+        Vec3 toward = step != null ? step : goal;
+        actions.lookAt(new Vec3(toward.x, bot.getEyeY(), toward.z)); // level gaze, so it walks straight at it
+        actions.setForward(1);
+        actions.setSprinting(distance > 2 * stopAt + 4);
+        if (bot.onGround() && (bot.horizontalCollision || (step != null && step.y > bot.getY() + 0.5))) {
+            CarpetIntegration.jump(bot); // up the step in the way
+        }
+    }
+
+    static void jumpIfBlocked(ServerPlayer bot) {
         if (bot.horizontalCollision && bot.onGround()) {
             CarpetIntegration.jump(bot); // step up the block in the way
+        }
+    }
+
+    static void selectSlot(ServerPlayer bot, int slot) {
+        Inventory inventory = bot.getInventory();
+        if (inventory.getSelectedSlot() != slot) {
+            inventory.setSelectedSlot(slot);
         }
     }
 }

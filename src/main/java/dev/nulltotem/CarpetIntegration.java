@@ -35,9 +35,23 @@ public final class CarpetIntegration {
         return ((ServerPlayerInterface) player).getActionPack();
     }
 
-    /** Same as {@code /player <name> attack interval <ticks>}: swings at whatever the bot is looking at. */
-    public static void attackEvery(ServerPlayer player, int ticks) {
-        actions(player).start(EntityPlayerActionPack.ActionType.ATTACK, EntityPlayerActionPack.Action.interval(ticks));
+    /** Same as {@code /player <name> attack once}: one swing at whatever the bot is looking at. */
+    public static void attackOnce(ServerPlayer player) {
+        actions(player).start(EntityPlayerActionPack.ActionType.ATTACK, EntityPlayerActionPack.Action.once());
+    }
+
+    /** Ends a running attack/dig (starting an action type with null only stops the old one). */
+    public static void stopAttack(ServerPlayer player) {
+        actions(player).start(EntityPlayerActionPack.ActionType.ATTACK, null);
+    }
+
+    /** Same as {@code /player <name> use continuous}: holds right-click, e.g. to eat what's in the main hand. */
+    public static void holdUse(ServerPlayer player) {
+        actions(player).start(EntityPlayerActionPack.ActionType.USE, EntityPlayerActionPack.Action.continuous());
+    }
+
+    public static void stopUse(ServerPlayer player) {
+        actions(player).start(EntityPlayerActionPack.ActionType.USE, null);
     }
 
     public static void jump(ServerPlayer player) {
