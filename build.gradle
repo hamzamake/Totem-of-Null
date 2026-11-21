@@ -1,0 +1,75 @@
+plugins {
+    id 'fabric-loom' version "${loom_version}"
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+    archivesName = project.archives_base_name
+}
+
+repositories {
+    maven {
+        name = 'Modrinth'
+        url = 'https://api.modrinth.com/maven'
+        content { includeGroup 'maven.modrinth' }
+    }
+}
+
+// Dev-only: an automated screenshot harness (src/clienttest), loaded only by the 'clientTest' run, never in the jar.
+sourceSets {
+    clienttest {}
+}
+
+loom {
+    mods {
+        nulltotem { sourceSet sourceSets.main }
+        nulltotem_clienttest { sourceSet sourceSets.clienttest }
+    }
+    runs {
+        // ./gradlew runClientTest -> run/clienttest/screenshots/nulltest_*.png, log lines start with [NULLTEST]
+        clientTest {
+            client()
+            source sourceSets.clienttest
+            runDir 'run/clienttest'
+            property 'nulltotem.clienttest', 'true'
+        }
+    }
+}
+
+configurations {
+    clienttestCompileClasspath.extendsFrom compileClasspath
+    clienttestRuntimeClasspath.extendsFrom runtimeClasspath
+}
+
+dependencies {
+    clienttestImplementation sourceSets.main.output
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings loom.officialMojangMappings()
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+    modImplementation "maven.modrinth:carpet:${project.carpet_version}"
+}
+
+processResources {
+    var replaceProperties = [version: project.mod_version]
+    inputs.properties replaceProperties
+    filesMatching('fabric.mod.json') {
+        expand replaceProperties
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 21
+    it.options.encoding = 'UTF-8'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+    // Gradle/Loom runs on 25, but the dev game must run on 21 (1.21.11's LWJGL fails on 25)
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}

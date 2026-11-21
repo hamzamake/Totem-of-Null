@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "nulltotem",
+  "version": "${version}",
+  "name": "Totem of Null",
+  "description": "A totem that wipes tagged players into the void when it pops, plus Carpet fake-player Null Soldiers.",
+  "authors": [
+    "HamzaTom"
+  ],
+  "license": "All-Rights-Reserved",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "dev.nulltotem.NullTotemMod"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "fabric-api": "*",
+    "minecraft": "~1.21.11",
+    "java": ">=21",
+    "carpet": "*"
+  },
+  "mixins": [
+    "nulltotem.mixins.json"
+  ]
+}

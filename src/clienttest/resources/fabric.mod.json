@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "nulltotem_clienttest",
+  "version": "1.0.0",
+  "name": "Totem of Null test harness",
+  "description": "Dev-only automated screenshot harness. Never shipped; only the clientTest Gradle run loads it.",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["dev.nulltotem.clienttest.Harness"]
+  },
+  "depends": {
+    "nulltotem": "*"
+  }
+}
