@@ -1,0 +1,38 @@
+plugins {
+    id 'java'
+}
+
+group = 'dev.nulltotem'
+version = project.plugin_version
+
+repositories {
+    mavenCentral()
+    maven { name = 'papermc'; url = 'https://repo.papermc.io/repository/maven-public/' }
+    maven { name = 'citizens'; url = 'https://maven.citizensnpcs.co/repo' }
+}
+
+dependencies {
+    compileOnly "io.papermc.paper:paper-api:${project.paper_version}"
+    compileOnly("net.citizensnpcs:citizens-main:${project.citizens_version}") {
+        exclude group: '*', module: '*'
+    }
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 21
+    options.encoding = 'UTF-8'
+}
+
+processResources {
+    var props = [version: project.plugin_version]
+    inputs.properties props
+    filesMatching('plugin.yml') {
+        expand props
+    }
+}

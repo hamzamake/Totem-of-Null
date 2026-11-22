@@ -1,0 +1,10 @@
+name: TotemOfNull
+version: '${version}'
+main: dev.nulltotem.paper.NullTotemPlugin
+api-version: '1.21.11'
+depend: [Citizens]
+description: The Totem of Null from the Unstable SMP, with an army of Null Soldiers (Citizens NPCs).
+permissions:
+  nulltotem.admin:
+    description: /null give, tag, untag, soldiers and config
+    default: op
