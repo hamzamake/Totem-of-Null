@@ -1,8 +1,8 @@
 # Totem of Null (Forge 1.20.1)
 
-A Forge mod for Minecraft 1.20.1, inspired by the Unstable SMP. It adds one cursed totem that cheats death, erases your enemies, and commands an army of Null Soldiers.
+A Forge mod for Minecraft 1.20.1. It adds one cursed totem that cheats death, erases your enemies, and commands an army of Null Soldiers.
 
-**Download:** [CurseForge: Totem of Null from unstable smp](https://www.curseforge.com/minecraft/mc-mods/totem-of-null-from-unstable-smp)
+**Download:** [CurseForge: Totem of Null](https://www.curseforge.com/minecraft/mc-mods/totem-of-null-from-unstable-smp)
 
 Needs nothing but Forge (no Carpet). Install it on both the server and the client.
 
