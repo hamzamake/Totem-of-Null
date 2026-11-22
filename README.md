@@ -2,7 +2,7 @@
 
 A Forge mod for Minecraft 1.20.1. It adds one cursed totem that cheats death, erases your enemies, and commands an army of Null Soldiers.
 
-**Download:** [CurseForge: Totem of Null](https://www.curseforge.com/minecraft/mc-mods/totem-of-null-from-unstable-smp)
+**Download:** [CurseForge: Totem of Null](https://www.curseforge.com/minecraft/mc-mods/totem-of-null-hamza-ver)
 
 Needs nothing but Forge (no Carpet). Install it on both the server and the client.
 
