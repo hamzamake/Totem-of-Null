@@ -1,8 +1,8 @@
 # Totem of Null
 
-A Fabric mod for Minecraft 1.21.11, inspired by the Unstable SMP. It adds one cursed totem that cheats death, erases your enemies, and commands an army of Null Soldiers.
+A Fabric mod for Minecraft 1.21.11. It adds one cursed totem that cheats death, erases your enemies, and commands an army of Null Soldiers.
 
-**Download:** [CurseForge: Totem of Null from unstable smp](https://www.curseforge.com/minecraft/mc-mods/totem-of-null-from-unstable-smp)
+**Download:** [CurseForge: Totem of Null](https://www.curseforge.com/minecraft/mc-mods/totem-of-null-from-unstable-smp)
 
 Requires [Fabric API](https://www.curseforge.com/minecraft/mc-mods/fabric-api) and [Carpet](https://www.curseforge.com/minecraft/mc-mods/carpet). Install on both the server and the client.
 
