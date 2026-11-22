@@ -1,8 +1,8 @@
 # Totem of Null (NeoForge 1.21.1)
 
-A NeoForge mod for Minecraft 1.21.1, inspired by the Unstable SMP. It adds one cursed totem that cheats death, erases your enemies, and commands an army of Null Soldiers.
+A NeoForge mod for Minecraft 1.21.1. It adds one cursed totem that cheats death, erases your enemies, and commands an army of Null Soldiers.
 
-**Download:** [CurseForge: Totem of Null from unstable smp](https://www.curseforge.com/minecraft/mc-mods/totem-of-null-from-unstable-smp)
+**Download:** [CurseForge: Totem of Null](https://www.curseforge.com/minecraft/mc-mods/totem-of-null-from-unstable-smp)
 
 Needs nothing but NeoForge (no Carpet). Install it on both the server and the client.
 
