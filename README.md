@@ -1,6 +1,6 @@
 # Totem of Null (Paper plugin, 1.21.11)
 
-A Paper plugin for Minecraft 1.21.11, inspired by the Unstable SMP. It adds one cursed totem that cheats death, erases your enemies, and commands an army of Null Soldiers.
+A Paper plugin for Minecraft 1.21.11. It adds one cursed totem that cheats death, erases your enemies, and commands an army of Null Soldiers.
 
 **Download:** [CurseForge: Totem of Null Hamza's Version (Paper plugin)](https://www.curseforge.com/minecraft/bukkit-plugins/totem-of-null-hamza-ver-paper-plugin)
 
