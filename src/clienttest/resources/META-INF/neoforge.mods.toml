@@ -1,0 +1,11 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "All rights reserved"
+
+[[mods]]
+modId = "nulltotemtest"
+version = "1"
+displayName = "Totem of Null test harness"
+
+[[mixins]]
+config = "nulltotemtest.mixins.json"

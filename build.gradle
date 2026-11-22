@@ -1,0 +1,51 @@
+// Totem of Null for NeoForge 1.21.1.
+//   ./gradlew build  -> build/libs/nulltotem-<version>.jar
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev' version '2.0.+'
+}
+
+version = mod_version
+group = mod_group_id
+base { archivesName = "${mod_id}-neoforge-${minecraft_version}" }
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+// dev-only test harness (not in the jar): ./gradlew runClientTest plays through every feature with real input
+sourceSets {
+    clienttest {
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+
+neoForge {
+    version = project.neo_version
+    parchment {
+        mappingsVersion = project.parchment_mappings_version
+        minecraftVersion = project.parchment_minecraft_version
+    }
+    mods {
+        "${mod_id}" { sourceSet(sourceSets.main) }
+        nulltotemtest { sourceSet(sourceSets.clienttest) }
+    }
+    runs {
+        client { client() }
+        server {
+            server()
+            gameDirectory = file('run/server')
+            programArgument '--nogui'
+        }
+        clientTest {
+            client()
+            sourceSet = sourceSets.clienttest
+            gameDirectory = file('run/clienttest')
+            programArguments.addAll('--username', 'NullTester')
+            systemProperty 'nulltotem.test', 'true'
+        }
+    }
+}
+
+neoForge.addModdingDependenciesTo(sourceSets.clienttest)
+
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }

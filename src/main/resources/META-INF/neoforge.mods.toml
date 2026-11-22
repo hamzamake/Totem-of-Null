@@ -1,0 +1,27 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "All-Rights-Reserved"
+
+[[mods]]
+modId = "nulltotem"
+version = "2.1.0"
+displayName = "Totem of Null"
+authors = "HamzaTom"
+description = '''A totem that wipes tagged players into the void when it pops, and an army of Null Soldiers (the mod's own fake players).'''
+
+[[mixins]]
+config = "nulltotem.mixins.json"
+
+[[dependencies.nulltotem]]
+modId = "neoforge"
+type = "required"
+versionRange = "[21.1.200,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.nulltotem]]
+modId = "minecraft"
+type = "required"
+versionRange = "[1.21.1,1.21.2)"
+ordering = "NONE"
+side = "BOTH"
