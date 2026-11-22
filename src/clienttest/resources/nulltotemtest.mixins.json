@@ -1,0 +1,8 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "dev.nulltotem.clienttest.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "client": ["CritCounterMixin"],
+  "injectors": { "defaultRequire": 1 }
+}

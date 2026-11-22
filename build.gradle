@@ -1,0 +1,130 @@
+// Totem of Null for Forge 1.20.1, built with ModDevGradle's legacy Forge plugin.
+//   ./gradlew build          -> build/libs/nulltotem-forge-1.20.1-<version>.jar (reobfuscated to SRG names)
+//   ./gradlew runServer      -> dev server in run/server
+//   ./gradlew runClientTest  -> the test harness (src/clienttest, not in the jar) against that server
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev.legacyforge' version '2.0.+'
+}
+
+version = mod_version
+group = maven_group
+base { archivesName = "${mod_id}-forge-${minecraft_version}" }
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+
+sourceSets {
+    clienttest {
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+configurations {
+    clienttestCompileOnly.extendsFrom compileOnly
+    clienttestImplementation.extendsFrom implementation
+    clienttestRuntimeOnly.extendsFrom runtimeOnly
+}
+
+legacyForge {
+    version = project.forge_version
+    addModdingDependenciesTo sourceSets.clienttest
+    parchment {
+        mappingsVersion = project.parchment_mappings_version
+        minecraftVersion = project.parchment_minecraft_version
+    }
+    mods {
+        "${mod_id}" { sourceSet(sourceSets.main) }
+        nulltotemtest { sourceSet(sourceSets.clienttest) }
+    }
+    runs {
+        client {
+            client()
+            loadedMods = [mods."${mod_id}"]
+        }
+        server {
+            server()
+            programArgument '--nogui'
+            gameDirectory = project.file('run/server')
+            loadedMods = [mods."${mod_id}"]
+        }
+        clientTest {
+            client()
+            gameDirectory = project.file('run/clienttest')
+            programArguments.addAll('--username', 'NullTester', '--mixin.config', 'nulltotemtest.mixins.json')
+            systemProperty 'nulltotem.test', 'true'
+            systemProperty 'fml.earlyWindowControl', 'false'
+            loadedMods = [mods."${mod_id}", mods.nulltotemtest]
+        }
+        configureEach {
+            systemProperty 'mixin.env.remapRefMap', 'true'
+            systemProperty 'mixin.env.refMapRemappingFile', project.layout.buildDirectory.file('dev-srg/srg-to-named.srg').get().asFile.absolutePath
+        }
+    }
+}
+
+// the mixin refmaps hold SRG names; the dev runs use Mojang's, so they get an SRG-to-Mojang file to remap them with
+var devSrg = tasks.register('devSrg') {
+    dependsOn 'createMinecraftArtifacts'
+    var from = layout.buildDirectory.file('moddev/artifacts/namedToIntermediate.tsrg')
+    var to = layout.buildDirectory.file('dev-srg/srg-to-named.srg')
+    outputs.file(to)
+    doLast {
+        var out = new StringBuilder()
+        String owner = null
+        from.get().asFile.eachLine('UTF-8') { line ->
+            if (line.isBlank() || line.startsWith('#') || line.startsWith('tsrg2 ') || line.startsWith('\t\t')) {
+                return
+            }
+            if (!line.startsWith('\t')) {
+                owner = line.split(' ')[0]
+                return
+            }
+            var p = line.trim().split(' ')
+            if (p.length == 3 && p[1].startsWith('(')) {
+                out << "MD: ${owner}/${p[2]} ${p[1]} ${owner}/${p[0]} ${p[1]}\n"
+            } else if (p.length >= 2) {
+                out << "FD: ${owner}/${p[-1]} ${owner}/${p[0]}\n"
+            }
+        }
+        to.get().asFile.parentFile.mkdirs()
+        to.get().asFile.setText(out.toString(), 'UTF-8')
+    }
+}
+tasks.matching { it.name.startsWith('prepare') && it.name.endsWith('Run') }.configureEach {
+    dependsOn devSrg
+}
+
+dependencies {
+    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
+}
+
+// Forge 1.20.1 runs with SRG names, so the mixins need a refmap; and it reads mixin configs from the manifest only.
+// (The test harness's mixins only run in the dev game, which uses Mojang names, so they need none.)
+mixin {
+    add sourceSets.main, "${mod_id}.refmap.json"
+    config "${mod_id}.mixins.json"
+}
+tasks.named('jar', Jar) {
+    manifest.attributes(['MixinConfigs': "${mod_id}.mixins.json"])
+}
+
+var generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {
+    var replaceProperties = [
+        minecraft_version_range: minecraft_version_range,
+        forge_version_range    : forge_version_range,
+        loader_version_range   : loader_version_range,
+        mod_id                 : mod_id,
+        mod_version            : mod_version,
+    ]
+    inputs.properties replaceProperties
+    expand replaceProperties
+    from 'src/main/templates'
+    into 'build/generated/sources/modMetadata'
+}
+sourceSets.main.resources.srcDir generateModMetadata
+legacyForge.ideSyncTask generateModMetadata
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.compilerArgs << '-Xmaxerrs' << '1000'
+}

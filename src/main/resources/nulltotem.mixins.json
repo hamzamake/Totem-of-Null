@@ -1,0 +1,10 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "dev.nulltotem.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "nulltotem.refmap.json",
+  "mixins": ["ConnectionAccessor", "PlayerAdvancementsMixin", "PlayerListMixin", "ServerGamePacketListenerImplMixin"],
+  "client": ["PlayerInfoMixin"],
+  "injectors": { "defaultRequire": 1 }
+}
